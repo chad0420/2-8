@@ -1,0 +1,23 @@
+##前置套件安裝
+!pip install openai
+!pip install yfinance
+from openai import OpenAI, OpenAIError # 串接 OpenAI API
+import yfinance as yf
+import pandas as pd # 資料處理套件
+import numpy as np
+import datetime as dt # 時間套件
+import requests
+from bs4 import BeautifulSoup
+from backtesting import Backtest, Strategy
+from backtesting.lib import crossover
+from scipy.stats import norm
+!pip install bokeh==2.4.3
+!pip install gdown==4.6.0
+import gdown
+import os
+import time
+from IPython.display import display
+from tqdm import tqdm
+
+!pip install -r requirements.txt
+  
