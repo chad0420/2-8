@@ -1,0 +1,148 @@
+#選出來的股票決定是否要進場(技術分析)
+def calculate_indicators(stock_id, period, user_msg):
+    stock_id += ".TW"
+    df = yf.download(stock_id, period=period)
+    code_str = ten.ai_helper(df, user_msg)
+    local_namespace = {}
+    success = False
+    for _ in range(3):
+        exec(code_str, globals(), local_namespace)
+        calculate = local_namespace['calculate']
+        new_df = calculate(df)
+        success = True
+        break
+    if not success:
+        print("請更換或重新輸入技術分析")
+    else:
+        return new_df
+
+user_msg = []
+
+user_msg.append(input("請輸入想要的技術分析:"))
+user_msg.append(input("想要多少%的停損點與停利點:"))
+period = input("想要回測的年數")
+
+stats_data={}
+retry_stocks=[]
+#################################################
+for stock_id in high_scores:
+    try:
+        result_df = calculate_indicators(stock_id, period, user_msg[0])
+        strategy_str = ten.ai_strategy(result_df, user_msg[0], user_msg[1])
+        print(strategy_str)
+        exec(strategy_str, globals())
+        backtest = Backtest(result_df,
+                            AiStrategy,
+                            cash=100000,
+                            commission=0.004,
+                            trade_on_close=True,
+                            exclusive_orders=True)
+        stats = backtest.run()
+        print(f"計算完成：{stock_id}")
+        print(stats)
+        stats_data[stock_id] = stats
+    except Exception as e:
+        print(f"處理 {stock_id} 時發生錯誤: {e}")
+        retry_stocks.append(stock_id)  # 添加出錯的股票到重試列表
+        for stock_id in retry_stocks:
+            try:
+                result_df = calculate_indicators(stock_id, period, user_msg[0])
+                strategy_str = ten.ai_strategy(result_df, user_msg[0], user_msg[1])
+                exec(strategy_str, globals())
+                backtest = Backtest(result_df,
+                                    AiStrategy,
+                                    cash=100000,
+                                    commission=0.004,
+                                    trade_on_close=True,
+                                    exclusive_orders=True)
+                stats = backtest.run()
+                print(f"重試計算完成：{stock_id}")
+                print(stats)
+                stats_data[stock_id] = stats
+            except Exception as e:
+                print(f"重試處理 {stock_id} 時再次發生錯誤: {e}")        
+
+# DataFrame 結構建立代碼
+columns = ['Stock ID', 'Exposure Time [%]', 'Equity Final [$]', 'Return [%]', 'Buy & Hold Return [%]',
+           'Return (Ann.) [%]', 'Volatility (Ann.) [%]', 'Sharpe Ratio','Sortino Ratio','Calmar Ratio','Max. Drawdown [%]',
+           'Avg. Drawdown [%]', 'Max. Drawdown Duration', 'Win Rate [%]', 'Best Trade [%]',
+           'Worst Trade [%]', 'Avg. Trade [%]', 'Profit Factor', 'Expectancy [%]', 'SQN']
+performance_df = pd.DataFrame(columns=columns)
+
+# 遍歷收集的數據，提取統計信息
+for stock_id, stats in stats_data.items():
+    new_row = pd.DataFrame([{
+        'Stock ID': stock_id,
+        'Exposure Time [%]': stats.get('Exposure Time [%]', None),
+        'Equity Final [$]': stats.get('Equity Final [$]', None),
+        'Return [%]': stats.get('Return [%]', None),
+        'Buy & Hold Return [%]': stats.get('Buy & Hold Return [%]', None),
+        'Return (Ann.) [%]': stats.get('Return (Ann.) [%]', None),
+        'Volatility (Ann.) [%]': stats.get('Volatility (Ann.) [%]', None),
+        'Sharpe Ratio': stats.get('Sharpe Ratio', None),
+        'Sortino Ratio': stats.get('Sortino Ratio', None),
+        'Calmar Ratio': stats.get('Calmar Ratio', None),
+        'Max. Drawdown [%]': stats.get('Max. Drawdown [%]', None),
+        'Avg. Drawdown [%]': stats.get('Avg. Drawdown [%]', None),
+        'Max. Drawdown Duration': stats.get('Max. Drawdown Duration', None),
+        'Win Rate [%]': stats.get('Win Rate [%]', None),
+        'Best Trade [%]': stats.get('Best Trade [%]', None),
+        'Worst Trade [%]': stats.get('Worst Trade [%]', None),
+        'Avg. Trade [%]': stats.get('Avg. Trade [%]', None),
+        'Profit Factor': stats.get('Profit Factor', None),
+        'Expectancy [%]': stats.get('Expectancy [%]', None),
+        'SQN': stats.get('SQN', None)
+    }], index=[0])
+    
+    performance_df =pd.concat([performance_df,new_row], ignore_index=True)
+
+# 顯示整理後的 DataFrame
+print(performance_df)              
+def analyze_performance(df):
+    # 確認 DataFrame 是否包含需要的列
+    required_columns = {'Return (Ann.) [%]', 'Volatility (Ann.) [%]', 'Sharpe Ratio', 'Stock ID'}
+    if not required_columns.issubset(df.columns):
+        return "DataFrame 缺少必要的列。"
+
+    # 如果 'Sharpe Ratio' 都是 0 或不可用，我們將基於 'Return (Ann.) [%]' 和 'Volatility (Ann.) [%]' 計算
+    if df['Sharpe Ratio'].max() == 0:
+        df['Performance Metric'] = df['Return (Ann.) [%]'] / df['Volatility (Ann.) [%]'].replace(0, pd.NA)
+    else:
+        df['Performance Metric'] = df['Sharpe Ratio']
+
+    # 找到最佳績效的策略
+    best_strategy_idx = df['Performance Metric'].idxmax()
+    best_strategy = df.loc[best_strategy_idx]
+    best_stock_id = best_strategy['Stock ID']
+
+    # 生成報告
+    content_list = [f"股票{i+1}（{stats_data[stock_id]}）：回測結果：stock['report']"
+                    for i, stock in enumerate(stats_data)]
+    content = "\n".join(content_list)
+    content += "\n\n請依資料給我一份約200字的分析報告。若有多支股票, \
+                    請選出表現最好的股票及原因, reply in 繁體中文."
+
+    msg = [{
+        "role": "system",
+        "content":  f"你是一位專業的證券分析師, 我會給你策略「{user_msg[0]}」的回測績效,\
+                    請幫我進行績效分析. 不用詳細講解每個欄位，重點說明即可, 並回答交易策略的好壞"
+                    f"分析結果顯示，股票代碼 {best_strategy['Stock ID']} 的策略表現最佳。"
+                    f"該股票的年化回報為 {best_strategy['Return (Ann.) [%]']:.2f}%，"
+                    f"年化波動率為 {best_strategy['Volatility (Ann.) [%]']:.2f}%，"
+                    f"夏普比率為 {best_strategy['Sharpe Ratio']:.2f}。"
+                    "此股票在考慮回報和風險的基礎上，提供了較高的績效，是推薦投資的首選。"
+                    
+    }, {
+        "role": "user",
+        "content": content
+    }]
+    reply_data = ten.get_reply(msg)
+    return reply_data, best_stock_id
+
+    
+reply_data, best_stock_id =analyze_performance(performance_df)
+
+#建立 GPT模型 (最後選出來的股票分析)
+final_rec = six.stock_gpt(stock_id=best_stock_id)
+print(final_rec)
+  
